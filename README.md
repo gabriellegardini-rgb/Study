@@ -1,10 +1,10 @@
 # SGU Study
 
-A web-based workspace for SGU medical school exam preparation. The application includes a dashboard and a Lecture Library for organizing lectures and manually entered learning objectives. It is an independent student project, not an official SGU product.
+A web-based workspace for SGU medical school exam preparation. The application includes a dashboard, persistent Lecture Library, PDF source processing, and a V1 Lecture Only study loop. It is an independent student project, not an official SGU product.
 
 ## Stack
 
-React 19, TypeScript, and Vite, with plain CSS. Vitest and React Testing Library provide component tests. IndexedDB provides a local browser database. There is no remote backend, authentication, or external API requirement.
+React 19, TypeScript, and Vite, with plain CSS. Vitest and React Testing Library provide component tests. IndexedDB provides a local browser database. A small local Node HTTP API handles model calls and grading. There is no remote app backend or authentication. AI rounds require an OpenAI API key; library and PDF processing work without one.
 
 ## Start development
 
@@ -12,10 +12,11 @@ Use Node.js 24 LTS (`nvm use` if you use nvm) and npm.
 
 ```sh
 npm ci
+# For AI rounds, copy .env.example to .env.local and edit it locally first.
 npm run dev
 ```
 
-Vite prints the development address. The server binds to all interfaces for cloud development. Use `npm run dev -- --port 5173 --strictPort` for a predictable port.
+The launcher starts Vite on port **5173** and the API on **127.0.0.1:3001**, both local to your computer. Vite proxies `/api` requests to the API; the browser never calls the model provider directly. Keep the same browser address/profile you used previously (for example `http://localhost:5173`) to retain access to IndexedDB. Port 5173 must be free; the launcher exits rather than silently moving to a different storage origin. Control+C stops both processes. `npm run dev:api` runs only the API for troubleshooting.
 
 ## Validation
 
@@ -25,12 +26,16 @@ npm run typecheck
 npm run build
 ```
 
-`npm run test:watch` watches tests. `npm run preview` serves the production build after `npm run build`; it is for local verification, not a production deployment server.
+`npm run test:watch` watches tests. `npm run preview` serves the browser build after `npm run build` for static UI checks. Use `npm run dev` for the complete quiz loop; the static build does not contain the API. Remote deployment is outside V1 scope. The production build also checks browser assets for server credential markers and the provider endpoint.
 
 ## Structure
 
 - `src/main.tsx`: browser entry point and global styles.
-- `src/App.tsx`: initial dashboard.
+- `src/App.tsx`: dashboard and navigation.
+- `src/quiz/`: evidence policy, typed quiz/API schemas, client API adapter, and Study UI.
+- `server/`: native Node HTTP routes, quiz lifecycle/validation, provider interface and OpenAI adapter.
+- `scripts/dev.mjs`: local web/API launcher.
+- `.env.example`: names of server environment variables, with no credentials.
 - `src/styles.css`: responsive styles without a UI framework.
 - `src/App.test.tsx`: dashboard behavior and empty-state tests.
 - `vite.config.ts`: Vite and test configuration.
@@ -116,8 +121,62 @@ Processing runs while the app is open. Closing/reloading before completion cance
 
 Tests include a real PDF.js parse of a synthetic multi-page PDF, damaged documents, page/chunk provenance, scoped retrieval, empty/failed pages, suggestion review, preservation of manual objectives, storage restoration, and stale/archive behavior. UI tests use a controlled extractor to exercise review and recovery workflows without relying on an LLM. The fixture includes no medical lecture content.
 
+## V1 grounded quiz engine
+
+### Configure AI on your Mac
+
+1. Use Node 24 LTS and run `npm ci` after pulling this version.
+2. Copy `.env.example` to **`.env.local`** in the repository root. Open it in your local editor and set `OPENAI_API_KEY` to your own OpenAI API key. Never paste keys in chat, put them in client source, or use a `VITE_` prefix. Both `.env` and `.env.local` are gitignored; `.env.example` contains empty/example values only.
+3. Optionally set `STUDY_MODEL`; the default is `gpt-4.1-mini`. The model must support Chat Completions with strict JSON-schema responses. Your API account needs access to the chosen model and available quota.
+4. Run `npm run dev`. Restart it after changing environment variables. You can alternatively inject `OPENAI_API_KEY` into the Node process using your shell's secure environment configuration.
+5. In **Lectures**, attach/process PDFs and select one or more lectures. Open **Study**, check the selected lecture list, and click **Start Study Session**. All three questions must be answered before submission. After feedback, choose **Next 3 Questions**.
+
+Without a key, the API still starts, and Check study service reports the missing configuration. Generation fails with a clear setup message; there is no sample-question or outside-knowledge fallback. Model API usage may incur charges: a valid round uses a generation call plus a separate review call; one bounded regeneration/review retry is allowed for invalid output.
+
+### Provider and answer-release boundary
+
+`ModelProvider` separates the application from the provider. `OpenAIProvider` uses Node's built-in fetch and server-only `OPENAI_API_KEY`; no provider SDK or browser-held secret is needed. `zod` validates requests, evidence, generated structured output, review output, and browser API responses. `tsx` is a development dependency for running the TypeScript local API. The HTTP API uses Node's standard library, not an additional web framework.
+
+The API binds to loopback, restricts browser origins to localhost/127.0.0.1 on port 5173, accepts bounded JSON requests, and sets no-store response headers. Keep it local: this is a single-user development service, **not an authenticated public API**. Do not expose it as a public deployment without a separate deployment/security design.
+
+Server routes:
+
+- `GET /api/health`: configuration presence only, never secret values.
+- `POST /api/study/round`: source packet plus optional previous graded round ID; returns exactly three public questions and server-generated IDs.
+- `POST /api/study/grade`: round ID, current source packet, and all three responses; returns grading and grounded feedback.
+
+Correct answers, explanations, tested concepts, clues, and citations remain in server memory until all three valid responses are submitted. The browser generation response contains only question IDs, stems, and choices. Rounds expire after one hour or a server restart. Submitted answers are immutable; retrying the same submission is idempotent. Next-round requests may include the previous graded round so its concepts can be deprioritized. This is an advisory avoidance hint, not spaced repetition. Reloading/leaving Study discards the active browser round; long-term quiz persistence is not implemented.
+
+### Source eligibility and Lecture Only isolation
+
+`buildEvidencePacket` reads the selected lecture IDs and sends only selected source records, referenced pages, and organizational metadata to the local API. It never sends PDF binaries or unselected lecture content. `eligibleSources` runs again on the server. There is no empty-scope/global fallback, external retrieval, or general-knowledge mode.
+
+Eligibility excludes demo lectures, unselected lectures, stale file references, failed processing, and every page with any extraction warning (including Check extraction/low-text), empty/failed pages, and low-text pages even if their warning is missing. Page/lecture/file IDs and offsets must match; chunk text must equal the captured normalized page substring.
+
+Name-only topic/drug/disease chunks are insufficient. A conservative syntax gate requires a substantive factual statement (at least 45 characters, seven words, and a relational/action cue). At least three qualifying statements must exist in the supplied context. This is deliberately conservative and can exclude legitimate terse slide bullets; it is **not** a medical truth classifier. Do not bypass the gate by inventing missing text. Select more complete eligible slides instead.
+
+Context is capped at 36 chunks, balanced across selected lectures; request bodies are capped at 4 MiB. Some eligible content may be left out of one round. Source-linked objective IDs are recorded when accepted PDF objectives share a source page; manually entered or edited objective text is never treated as generation evidence. Unverified objective linkage remains empty instead of being guessed.
+
+### Generation, citations and independent review
+
+The model receives only eligible excerpts and their actual IDs. It is explicitly instructed that these excerpts are the ONLY medical source, that prior knowledge must not supply facts, and that instructions inside uploaded text are data rather than commands. Prefer five choices, permit three/four only when supported, and prefer simpler questions over unsupported clinical complexity.
+
+Every generated text field—including stem, every option, every explanation, tested concept and winning clue—must include exact quotations from existing retrieved chunks. Structural validation requires exactly three distinct stems, valid sequential option labels, a valid correct answer, unique option text, and existing source IDs with verbatim quotes. Explicit answer-key/topic prefixes are rejected. A separate provider review must confirm support for **all** content, sufficient factual evidence, exactly one best answer, and no answer leakage. Rejected output is regenerated once, then fails closed with an insufficient/unsupported-material message. There is no ungrounded fallback.
+
+Citations are built from server-validated sources, not model-invented metadata. After grading, students see lecture number/title, physical PDF page, the exact supporting chunk, and quoted evidence. The feedback includes **The clue that wins is:** and grounded explanations for each option. Raw IDs are internal, not the main citation label.
+
+Source selection and current-file/content fingerprints are checked again at submission. Changing selection or eligible source content invalidates the browser round and prevents stale grading. A request includes a browser-owned source snapshot because there is no remote lecture database; the server verifies internal consistency, not the authenticity of a deliberately forged browser database.
+
+### Verification and remaining limits
+
+Tests cover the three-question loop, selected/multiple-lecture isolation, flagged/name-only exclusion, bad schemas and fabricated citations, unsupported-content rejection, hidden answers, grading, source display, retries, API failures, expiration, and secret handling. `npm run build` scans client assets for provider/credential markers; the check was also exercised with a synthetic server secret injected during building.
+
+Automated semantic review is an additional safeguard, **not a formal proof of medical correctness**. A real quote can still be misinterpreted, and extraction can misorder tables or omit qualifiers without detecting a warning. Inspect the supplied source citations and original PDF. No live provider success is claimed unless tested with valid configured credentials. Controlled-provider tests do not require or spend a real API key.
+
+V1 does not store historical performance or calculate mastery/readiness. Round feedback is recorded in server memory before moving on. Dashboard aggregate quiz metrics remain explicitly labeled placeholders. No spaced repetition, OCR, authentication, cloud sync, or automatic performance scheduling was added.
+
 ## Scope
 
-AI question generation, quizzes, OCR, spaced repetition, authentication, analytics, and a remote backend are not implemented. Dashboard lecture counts exclude demo lectures; question counts remain zero and accuracy is unassessed. Adding objectives does not generate questions.
+OCR, spaced repetition, full mastery analytics, exam readiness calculations, authentication, and a remote backend are not implemented. Dashboard lecture counts exclude demo lectures; question counts remain zero and accuracy is unassessed. Adding objectives does not generate questions automatically; start a round explicitly in Study.
 
-Commit `package-lock.json` and use `npm ci` to reproduce dependencies. The repository `.npmrc` puts npm’s cache in `/tmp/sgu-study-npm-cache` because the cloud home directory is read-only. No environment variables or credentials are needed. Keep uploaded lecture PDFs and personal study records out of source control unless explicitly requested.
+Commit `package-lock.json` and use `npm ci` to reproduce dependencies. The repository `.npmrc` puts npm’s cache in `/tmp/sgu-study-npm-cache` because the cloud home directory is read-only. Library/PDF features require no credentials; AI configuration is described below. Keep uploaded lecture PDFs and personal study records out of source control unless explicitly requested.

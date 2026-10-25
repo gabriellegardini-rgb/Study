@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import Study from './quiz/Study';
 import LectureLibrary from './library/LectureLibrary';
 import { useLibrary } from './library/useLibrary';
 
 export default function App() {
-  const [page, setPage] = useState<'dashboard' | 'lectures'>('dashboard');
+  const [page, setPage] = useState<'dashboard' | 'lectures' | 'study'>('dashboard');
   const { data, setData, selected, setSelected, ready, saving, error, retry } = useLibrary();
   return (
     <div className="app-shell">
@@ -15,7 +16,7 @@ export default function App() {
         <nav className="primary-nav" aria-label="Main navigation">
           <button aria-current={page === 'dashboard' ? 'page' : undefined} onClick={() => setPage('dashboard')}>Dashboard</button>
           <button aria-current={page === 'lectures' ? 'page' : undefined} onClick={() => setPage('lectures')}>Lectures</button>
-          <span>Study · Soon</span><span>Performance · Soon</span><span>Exams · Soon</span>
+          <button aria-current={page === 'study' ? 'page' : undefined} onClick={() => setPage('study')}>Study</button><span>Performance · Soon</span><span>Exams · Soon</span>
         </nav>
         <span className="status"><span aria-hidden="true" /> Getting started</span>
       </header>
@@ -23,7 +24,7 @@ export default function App() {
       <main id="main">
         {error && <div className="storage-message" role="alert"><p>{error}</p><button onClick={retry}>Retry storage</button></div>}
         {saving && <p className="save-indicator" role="status">Saving changes…</p>}
-        {!ready ? <p role="status">Opening your library…</p> : page === 'lectures' ? <LectureLibrary data={data} setData={setData} selected={selected} setSelected={setSelected} /> : <>
+        {!ready ? <p role="status">Opening your library…</p> : page === 'lectures' ? <LectureLibrary data={data} setData={setData} selected={selected} setSelected={setSelected} /> : page === 'study' ? <Study data={data} selected={selected} onLectures={() => setPage('lectures')} /> : <>
         <section className="welcome" aria-labelledby="welcome-heading">
           <p className="eyebrow">A LITTLE PROGRESS, EVERY DAY</p>
           <h1 id="welcome-heading">Make room for understanding.</h1>
@@ -43,11 +44,11 @@ export default function App() {
           <div className="section-heading"><div><p className="eyebrow">YOUR NEXT CHAPTER</p><h2 id="next-heading">A foundation for better study.</h2></div><span className="badge">Initial version</span></div>
           <div className="cards">
             <article className="card"><span className="step">01 / ORGANIZE</span><h3>Keep your lectures together</h3><p>Keep your slides and learning objectives organized around your course material.</p><button className="text-button" onClick={() => setPage('lectures')}>Open lecture library →</button></article>
-            <article className="card"><span className="step">02 / PRACTICE</span><h3>Think through each question</h3><p>Practice in focused batches, with explanations grounded in your uploaded lectures.</p><span className="coming-soon">Practice sessions · Planned</span></article>
+            <article className="card"><span className="step">02 / PRACTICE</span><h3>Think through each question</h3><p>Practice in focused batches, with explanations grounded in your uploaded lectures.</p><button className="text-button" onClick={() => setPage('study')}>Open Study →</button></article>
             <article className="card"><span className="step">03 / REVISIT</span><h3>Turn weak spots into strengths</h3><p>Return to challenging concepts and follow your progress as your understanding grows.</p><span className="coming-soon">Progress tracking · Planned</span></article>
           </div>
         </section>
-        <aside className="empty-note"><strong>A fresh start.</strong> This dashboard is a working application shell. Your lecture count reflects lectures you add here. Quiz numbers above are initial placeholders; practice and performance tracking are coming later.</aside>
+        <aside className="empty-note"><strong>A fresh start.</strong> This dashboard is a working application shell. Your lecture count reflects lectures you add here. Quiz numbers above are initial placeholders; long-term performance tracking is coming later.</aside>
         </>}
       </main>
       <footer><span>SGU Study</span><span>Built for focused learning. Independent student project.</span></footer>

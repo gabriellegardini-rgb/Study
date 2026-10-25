@@ -1,0 +1,80 @@
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import Study from './Study';
+import { quizCandidate, quizLibrary, quizPacket } from './fixtures';
+import { eligibleSources } from './evidence';
+import type { PublicRound, RoundFeedback } from './schema';
+
+function setup() {
+  const candidate = quizCandidate();
+  const sources = eligibleSources(quizPacket());
+  const round: PublicRound = { roundId:'round',expiresAt:'2026-12-01T00:00:00Z', questions:candidate.questions.map((q,i) => ({id:`q${i}`,stem:q.stem.text,choices:q.choices.map(c => ({label:c.label,text:c.content.text}))})) };
+  const feedback: RoundFeedback = { roundId:'round',correct:1,total:3,questions:candidate.questions.map((q,i) => ({id:`q${i}`,correct:i===0,chosenAnswer:'A',correctAnswer:q.correctAnswer,explanation:q.explanation.text,concept:q.concept.text,clue:q.clue.text,difficulty:q.difficulty,choices:q.choices.map(c => ({label:c.label,text:c.content.text,explanation:c.explanation.text})),sources:sources.map(s => ({...s,quotes:[s.text]}))})) };
+  const api = { start:vi.fn().mockResolvedValue(round),grade:vi.fn().mockResolvedValue(feedback) };
+  return { api, round, feedback, data:quizLibrary(), onLectures:vi.fn() };
+}
+describe('Three-question study loop', () => {
+  it('shows selected lectures, hides answers until all three are submitted, then reveals grounded feedback and next round', async () => {
+    const {api,data,onLectures} = setup(); const user=userEvent.setup();
+    render(<Study data={data} selected={['lecture-26']} api={api} onLectures={onLectures} />);
+    expect(screen.getByText('Lecture 26 — Sample lecture 26')).toBeVisible();
+    expect(screen.queryByText(/Sample lecture 28/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'Start Study Session'}));
+    await screen.findByRole('heading',{name:'Question 1'});
+    expect(screen.getAllByRole('heading',{name:/^Question [123]$/})).toHaveLength(3);
+    expect(screen.queryByText(/The clue that wins is:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Correct answer:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tested concept:/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Submit all 3 answers'})).toBeDisabled();
+    const groups=screen.getAllByRole('group');
+    await user.click(within(groups[0]).getByRole('radio',{name:/A\. Amber/}));
+    await user.click(within(groups[0]).getByRole('radio',{name:/B\. Violet/}));
+    expect(within(groups[0]).getByRole('radio',{name:/B\. Violet/})).toBeChecked();
+    await user.click(within(groups[1]).getByRole('radio',{name:/A\. Amber/}));
+    expect(screen.getByRole('button',{name:'Submit all 3 answers'})).toBeDisabled();
+    await user.click(within(groups[2]).getByRole('radio',{name:/A\. Amber/}));
+    await user.click(screen.getByRole('button',{name:'Submit all 3 answers'}));
+    expect(await screen.findByText('Round complete · 1 / 3 correct')).toBeVisible();
+    expect(api.grade.mock.calls[0][2][0]).toEqual({questionId:'q0',choice:'B'});
+    expect(screen.getAllByText('The clue that wins is:')).toHaveLength(3);
+    expect(screen.getAllByText(/Correct answer:/)).toHaveLength(3);
+    expect(screen.getAllByText('Lecture 26 — Sample lecture 26',{selector:'.source-chunk strong'})).toHaveLength(3);
+    expect(screen.getAllByText('PDF page 1')).toHaveLength(3);
+    screen.getAllByRole('radio').forEach(radio => expect(radio).toBeDisabled());
+    await user.click(screen.getByRole('button',{name:'Next 3 Questions'}));
+    await waitFor(() => expect(api.start).toHaveBeenCalledTimes(2));
+    expect(api.start.mock.calls[1][1]).toBe('round');
+    expect(screen.queryByText('Round complete · 1 / 3 correct')).not.toBeInTheDocument();
+  });
+  it('handles empty/insufficient evidence and a model failure without revealing fallback answers', async () => {
+    const {api,data,onLectures}=setup();
+    const view=render(<Study data={data} selected={[]} api={api} onLectures={onLectures} />);
+    expect(screen.getByRole('button',{name:'Start Study Session'})).toBeDisabled();
+    view.rerender(<Study data={data} selected={['lecture-26','lecture-28']} api={api} onLectures={onLectures} />);
+    api.start.mockRejectedValueOnce(new Error('A fully supported round could not be verified.'));
+    fireEvent.click(screen.getByRole('button',{name:'Start Study Session'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be verified');
+    expect(screen.queryByRole('heading',{name:'Question 1'})).not.toBeInTheDocument();
+    expect(api.start.mock.calls[0][0].selectedLectureIds).toEqual(['lecture-26','lecture-28']);
+    const flagged=structuredClone(data); flagged.processedLectures!.forEach(p=>p.pages.forEach(page=>{page.warning='Check extraction';}));
+    view.rerender(<Study data={flagged} selected={['lecture-26']} api={api} onLectures={onLectures} />);
+    expect(screen.getByText(/No eligible evidence yet/)).toBeVisible();
+    expect(screen.getByRole('button',{name:'Start Study Session'})).toBeDisabled();
+  });
+  it('retains answers on submission failure and discards a round when its source selection changes', async () => {
+    const {api,data,onLectures}=setup();
+    const view=render(<Study data={data} selected={['lecture-26']} api={api} onLectures={onLectures} />);
+    fireEvent.click(screen.getByRole('button',{name:'Start Study Session'}));
+    await screen.findByRole('heading',{name:'Question 1'});
+    screen.getAllByRole('group').forEach(group=>fireEvent.click(within(group).getAllByRole('radio')[0]));
+    api.grade.mockRejectedValueOnce(new Error('The local service is unavailable.'));
+    fireEvent.click(screen.getByRole('button',{name:'Submit all 3 answers'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('unavailable');
+    expect(screen.getAllByRole('radio',{checked:true})).toHaveLength(3);
+    expect(screen.queryByText(/Correct answer:/)).not.toBeInTheDocument();
+    view.rerender(<Study data={data} selected={['lecture-28']} api={api} onLectures={onLectures} />);
+    expect(screen.queryByRole('heading',{name:'Question 1'})).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('source content changed');
+  });
+});

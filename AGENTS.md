@@ -4,7 +4,7 @@
 
 Build a personalized study system for an SGU medical student preparing for course exams and eventually USMLE Step 1. Prioritize active recall, clinical reasoning, spaced repetition, weakness identification, performance tracking, exam-focused study, and learning-objective coverage.
 
-This document establishes product direction and behavioral rules; it does not authorize implementation of every feature listed here. The current application is an initial homepage/dashboard with clearly labeled placeholders. Do not add features merely because they appear in this guide. Before implementing a major new system, propose the smallest useful version first.
+This document establishes product direction and behavioral rules; it does not authorize implementation of every feature listed here. The current application includes a dashboard, persistent Lecture Library, page-aware PDF source processing, and a V1 Lecture Only quiz loop. Future roadmap items still require a follow-up request. Do not add features merely because they appear in this guide. Before implementing a major new system, propose the smallest useful version first.
 
 ## Source boundaries
 
@@ -95,6 +95,8 @@ Do not hard-code individual lectures or medical facts into UI components. Keep l
 
 - Work in the existing checkout. Cloud tasks are isolated; do not create a Git worktree unless explicitly requested.
 - Use Node 24 LTS and npm. Install with `npm ci`. Preserve the lockfile; update and commit it when intentionally changing dependencies. `.npmrc` configures a writable cache under `/tmp` for this cloud environment.
+- `npm run dev` starts the local Node API on 127.0.0.1:3001 and Vite on port 5173. Configure model credentials only through server-side `OPENAI_API_KEY` in the ignored `.env.local` or process environment. Never use a `VITE_` secret, import server modules into client code, or send answer keys before submission.
+- For V1 generation, exclude all flagged/low-text/empty/failed pages and name-only chunks. Require scoped evidence, valid verbatim quotations, schema validation and independent grounding review. A model review is not a medical-correctness guarantee.
 - Start with `npm run dev`; use `npm run dev -- --port 5173 --strictPort` for a predictable port.
 - Validate application changes with `npm test`, `npm run typecheck`, and `npm run build`. Verify meaningful user behavior and actual service responses when startup behavior changes.
 - Add automated tests for important study logic, especially source isolation, grading, feedback timing, review scheduling, objective coverage, and mastery calculations as those systems are implemented. Avoid tests tied only to CSS classes or implementation details. Documentation-only changes need content review, not new product tests.
