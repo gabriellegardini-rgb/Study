@@ -6,3 +6,6 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+
+# Generated from the locked PDF.js package by lifecycle scripts.
+/public/pdfjs/

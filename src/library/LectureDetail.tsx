@@ -1,10 +1,11 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { Lecture, LibraryData, StudyStatus } from './models';
 import PdfAttachment from './PdfAttachment';
+import ProcessingPanel from '../processing/ProcessingPanel';
 import { studyStatusLabels } from './models';
 
-export default function LectureDetail({ lecture, data, setData, onBack }: {
-  lecture: Lecture; data: LibraryData; setData: Dispatch<SetStateAction<LibraryData>>; onBack: () => void;
+export default function LectureDetail({ lecture, data, setData, onBack, initialPage }: {
+  initialPage?: number; lecture: Lecture; data: LibraryData; setData: Dispatch<SetStateAction<LibraryData>>; onBack: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
@@ -24,12 +25,13 @@ export default function LectureDetail({ lecture, data, setData, onBack }: {
         <PdfAttachment lecture={lecture} onChange={pdf => setData(d => ({ ...d, lectures: d.lectures.map(l => l.id === lecture.id ? { ...l, pdf } : l) }))} />
       </div>
     </section>
+    <ProcessingPanel lecture={lecture} data={data} setData={setData} initialPage={initialPage} />
     <section className="objective-panel" aria-labelledby="objectives-heading">
       <div className="section-heading"><h2 id="objectives-heading">Learning objectives</h2><span className="badge">{reviewed} / {objectives.length} reviewed</span></div>
       {objectives.length > 0 ? <><progress aria-label="Objectives reviewed" value={reviewed} max={objectives.length} /><ul className="objective-list">{objectives.map((objective, i) => <li key={objective.id}>
-        {editing === objective.id ? <form className="objective-edit" onSubmit={e => { e.preventDefault(); if (!editText.trim()) return; setData(d => ({ ...d, objectives: d.objectives.map(o => o.id === objective.id ? { ...o, text: editText.trim(), reviewed: false } : o) })); setEditing(null); }}>
+        {editing === objective.id ? <form className="objective-edit" onSubmit={e => { e.preventDefault(); if (!editText.trim()) return; setData(d => ({ ...d, objectives: d.objectives.map(o => o.id === objective.id ? { ...o, text: editText.trim(), reviewed: false, source: o.source.kind === 'pdf' ? { ...o.source, edited: true } : o.source } : o) })); setEditing(null); }}>
           <label>Edit objective<textarea autoFocus required value={editText} onChange={e => setEditText(e.target.value)} /></label><div className="actions"><button className="button">Save objective</button><button type="button" onClick={() => setEditing(null)}>Cancel edit</button></div>
-        </form> : <><label className="objective-check"><input type="checkbox" checked={objective.reviewed} onChange={() => setData(d => ({ ...d, objectives: d.objectives.map(o => o.id === objective.id ? { ...o, reviewed: !o.reviewed } : o) }))} /><span>{objective.text}<small>{objective.reviewed ? 'Reviewed' : 'Not reviewed'} · Manually entered</small></span></label>
+        </form> : <><label className="objective-check"><input type="checkbox" checked={objective.reviewed} onChange={() => setData(d => ({ ...d, objectives: d.objectives.map(o => o.id === objective.id ? { ...o, reviewed: !o.reviewed } : o) }))} /><span>{objective.text}<small>{objective.reviewed ? 'Reviewed' : 'Not reviewed'} · {objective.source.kind === 'manual' ? 'Manually entered' : `Accepted from PDF page ${objective.source.page}${objective.source.edited ? ' · Edited' : ''}${objective.source.documentId !== lecture.pdf?.id ? ' · Previous PDF' : ''}`}</small></span></label>
           <div className="actions"><button aria-label={`Edit objective ${i + 1}`} onClick={() => { setEditing(objective.id); setEditText(objective.text); }}>Edit</button><button aria-label={`Delete objective ${i + 1}`} onClick={() => setData(d => ({ ...d, objectives: d.objectives.filter(o => o.id !== objective.id) }))}>Delete</button></div></>}
       </li>)}</ul></> : <p className="empty-state">Start with the learning objectives from your lecture. Each one gives your study a clear direction.</p>}
       <form className="objective-add" onSubmit={e => { e.preventDefault(); if (!draft.trim()) return; const id = crypto.randomUUID(); setData(d => ({ ...d, objectives: [...d.objectives, { id, lectureId: lecture.id, text: draft.trim(), reviewed: false, source: { kind: 'manual' } }] })); setDraft(''); }}>

@@ -1,3 +1,4 @@
+import type { ProcessedLecture } from '../processing/models';
 export type StudyStatus = 'not-started' | 'learning' | 'weak' | 'improving' | 'mastered';
 export const studyStatusLabels: Record<StudyStatus, string> = {
   'not-started': 'Not started', learning: 'Learning', weak: 'Weak', improving: 'Improving', mastered: 'Mastered',
@@ -10,7 +11,7 @@ export interface LearningObjective {
   lectureId: string;
   text: string;
   reviewed: boolean;
-  source: { kind: 'manual' } | { kind: 'pdf'; documentId: string; page: number };
+  source: { kind: 'manual' } | { kind: 'pdf'; documentId: string; page: number; originalText?: string; edited?: boolean };
 }
 export interface PdfDocument {
   id: string;
@@ -36,6 +37,8 @@ export interface Lecture {
   isDemo: boolean;
 }
 export interface LibraryData {
+  // Optional for backward-compatible loading of the original IndexedDB v1 snapshot.
+  processedLectures?: ProcessedLecture[];
   courses: Course[];
   modules: CourseModule[];
   exams: Exam[];

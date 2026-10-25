@@ -29,7 +29,7 @@ export function toggleGroupSelection(selected: string[], groupIds: string[]): st
 export function removeDemoData(data: LibraryData): LibraryData {
   const lectures = data.lectures.filter(l => !l.isDemo);
   const modules = data.modules.filter(m => lectures.some(l => l.moduleId === m.id));
-  return { lectures, modules, courses: data.courses.filter(c => modules.some(m => m.courseId === c.id)),
+  return { processedLectures: data.processedLectures?.filter(p => lectures.some(l => l.id === p.lectureId)), lectures, modules, courses: data.courses.filter(c => modules.some(m => m.courseId === c.id)),
     exams: data.exams.filter(e => lectures.some(l => l.examId === e.id)), objectives: data.objectives.filter(o => lectures.some(l => l.id === o.lectureId)) };
 }
 
