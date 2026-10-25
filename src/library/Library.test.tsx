@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import App from '../App';
+import userEvent from '@testing-library/user-event';
 import { libraryRepository } from './storage';
 import { addLecture, emptyLibrary } from './data';
 
@@ -158,4 +159,41 @@ it('shows a recoverable missing-file state without losing the lecture', async ()
   expect(screen.getByRole('heading', { name: 'Lecture with missing file' })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Remove PDF' }));
   expect(screen.getByText('No PDF attached')).toBeVisible();
+});
+
+
+describe('Lecture opening and selection integration', () => {
+  it('opens from the card body, returns focus to the card, and preserves saved selection and PDF', async () => {
+    const user = userEvent.setup();
+    await openLibrary();
+    await createLecture(true);
+    fireEvent.click(screen.getByRole('button', { name: '← All lectures' }));
+    const checkbox = screen.getByRole('checkbox', { name: 'Select lecture 19: My first lecture' });
+    await user.click(checkbox);
+    expect(screen.getByRole('heading', { name: 'Lecture library' })).toBeVisible();
+    expect(checkbox).toBeChecked();
+    await waitFor(async () => expect((await libraryRepository.load())?.snapshot.selected).toHaveLength(1));
+    const before = (await libraryRepository.load())!;
+    const lecture = before.snapshot.data.lectures.find(l => !l.isDemo)!;
+    const pdfBefore = await libraryRepository.getPdf(lecture.pdf!.id);
+    await user.click(screen.getByText('Dr Example'));
+    const heading = screen.getByRole('heading', { level: 1, name: 'My first lecture' });
+    expect(heading).toHaveFocus();
+    expect(screen.getByText('lecture.pdf')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '← All lectures' }));
+    const openButton = screen.getByRole('button', { name: 'My first lecture' });
+    expect(openButton).toHaveFocus();
+    expect(screen.getByRole('checkbox', { name: 'Select lecture 19: My first lecture' })).toBeChecked();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('heading', { level: 1, name: 'My first lecture' })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: '← All lectures' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select lecture 19: My first lecture' }));
+    expect(screen.getByRole('heading', { name: 'Lecture library' })).toBeVisible();
+    await waitFor(async () => expect((await libraryRepository.load())?.snapshot.selected).toHaveLength(0));
+    const after = (await libraryRepository.load())!;
+    expect(after.snapshot.data).toEqual(before.snapshot.data);
+    const pdfAfter = await libraryRepository.getPdf(lecture.pdf!.id);
+    expect(pdfAfter?.metadata).toEqual(pdfBefore?.metadata);
+    expect(await pdfAfter?.blob.arrayBuffer()).toEqual(await pdfBefore?.blob.arrayBuffer());
+  });
 });

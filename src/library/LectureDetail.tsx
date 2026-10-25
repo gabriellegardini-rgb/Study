@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Lecture, LibraryData, StudyStatus } from './models';
 import PdfAttachment from './PdfAttachment';
 import ProcessingPanel from '../processing/ProcessingPanel';
@@ -7,6 +7,8 @@ import { studyStatusLabels } from './models';
 export default function LectureDetail({ lecture, data, setData, onBack, initialPage }: {
   initialPage?: number; lecture: Lecture; data: LibraryData; setData: Dispatch<SetStateAction<LibraryData>>; onBack: () => void;
 }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { heading.current?.focus(); }, []);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -19,7 +21,7 @@ export default function LectureDetail({ lecture, data, setData, onBack, initialP
     <section className="detail-header">
       <p className="eyebrow">{course.name} / {module.name}</p>
       <p className="muted">Lecture {lecture.number}{lecture.isDemo ? ' · Demo' : ''}</p>
-      <h1>{lecture.title}</h1>
+      <h1 ref={heading} tabIndex={-1}>{lecture.title}</h1>
       <div className="metadata"><span>Professor: {lecture.professor || 'Not added'}</span><span>Exam: {data.exams.find(e => e.id === lecture.examId)?.name || 'Not associated'}</span></div>
       <div className="detail-tools"><label>Study status (self-assessed)<select value={lecture.status} onChange={e => setData(d => ({ ...d, lectures: d.lectures.map(l => l.id === lecture.id ? { ...l, status: e.target.value as StudyStatus, statusSource: 'self-reported' } : l) }))}>{Object.entries(studyStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <PdfAttachment lecture={lecture} onChange={pdf => setData(d => ({ ...d, lectures: d.lectures.map(l => l.id === lecture.id ? { ...l, pdf } : l) }))} />
